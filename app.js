@@ -2,17 +2,159 @@ import { db, ref, onValue, set } from './firebase-config.js';
 import { throttledFetchStreets } from './overpass-query.js';
 
 // Initialize map centered on India
-const map = L.map('map').setView([20.5937, 78.9629], 5);
+const map = L.map('map', {
+    preferCanvas: true, // Use Canvas renderer for better performance
+    wheelDebounceTime: 150,
+    wheelPxPerZoomLevel: 120
+}).setView([20.5937, 78.9629], 5);
 
 // Add OpenStreetMap tile layer
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+    minZoom: 5,
+    crossOrigin: true,
+    maxNativeZoom: 18,
+    maxBounds: [
+        [8.0661, 68.1097], // Southwest coordinates of India
+        [37.2937, 97.4152]  // Northeast coordinates of India
+    ],
+    bounds: [
+        [8.0661, 68.1097], // Southwest coordinates of India
+        [37.2937, 97.4152]  // Northeast coordinates of India
+    ]
 }).addTo(map);
+
+// Initialize marker cluster group
+const markerCluster = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    spiderfyOnMaxZoom: false,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true
+});
+map.addLayer(markerCluster);
+
+// Initialize geocoder
+const geocoder = L.Control.Geocoder.nominatim({
+    geocodingQueryParams: {
+        countrycodes: 'in', // Limit to India
+        bounded: 1,
+        viewbox: '68.1097,8.0661,97.4152,37.2937', // India bounds
+        limit: 5
+    }
+});
+
+// Search functionality
+const searchInput = document.getElementById('search-input');
+const searchButton = document.getElementById('search-button');
+const searchResults = document.getElementById('search-results');
+let searchTimeout = null;
+let searchMarker = null;
+
+async function performSearch(query) {
+    if (!query.trim()) {
+        searchResults.innerHTML = '';
+        searchResults.classList.remove('active');
+        return;
+    }
+
+    try {
+        showLoading();
+        const results = await new Promise((resolve) => {
+            geocoder.geocode(query, resolve);
+        });
+
+        searchResults.innerHTML = '';
+        
+        if (results.length === 0) {
+            searchResults.innerHTML = '<div class="search-result-item">No results found</div>';
+        } else {
+            results.forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'search-result-item';
+                item.textContent = result.name;
+                item.addEventListener('click', () => selectSearchResult(result));
+                searchResults.appendChild(item);
+            });
+        }
+        
+        searchResults.classList.add('active');
+    } catch (error) {
+        console.error('Search error:', error);
+        searchResults.innerHTML = '<div class="search-result-item">Search failed</div>';
+    } finally {
+        hideLoading();
+    }
+}
+
+function selectSearchResult(result) {
+    // Remove previous search marker if any
+    if (searchMarker) {
+        map.removeLayer(searchMarker);
+    }
+
+    // Create new marker
+    searchMarker = L.marker([result.center.lat, result.center.lng], {
+        icon: L.divIcon({
+            className: 'search-marker',
+            html: '📍',
+            iconSize: [24, 24]
+        })
+    }).addTo(map);
+
+    // Fly to location
+    map.flyTo([result.center.lat, result.center.lng], 16);
+
+    // Clear search results
+    searchResults.innerHTML = '';
+    searchResults.classList.remove('active');
+    searchInput.value = result.name;
+
+    // Load streets for this area
+    loadStreets();
+}
+
+// Event listeners for search
+searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
+});
+
+searchButton.addEventListener('click', () => {
+    performSearch(searchInput.value);
+});
+
+searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        performSearch(searchInput.value);
+    }
+});
+
+// Close search results when clicking outside
+document.addEventListener('click', (e) => {
+    if (!searchResults.contains(e.target) && !searchInput.contains(e.target)) {
+        searchResults.classList.remove('active');
+    }
+});
 
 // Store street data and markers
 const streets = new Map();
 const rainMarkers = new Map();
 const userReports = new Map();
+
+// Create marker icons once
+const rainIcon = L.divIcon({
+    className: 'rain-marker',
+    html: '🌧️',
+    iconSize: [20, 20]
+});
+
+const dryIcon = L.divIcon({
+    className: 'dry-marker',
+    html: '☀️',
+    iconSize: [20, 20]
+});
 
 // Loading indicator
 const loading = document.getElementById('loading');
@@ -21,6 +163,26 @@ function showLoading() {
 }
 function hideLoading() {
     loading.classList.remove('active');
+}
+
+// Batch marker updates
+const markerUpdateQueue = new Set();
+let updateTimeout = null;
+
+function processMarkerUpdates() {
+    markerCluster.clearLayers();
+    for (const marker of markerUpdateQueue) {
+        markerCluster.addLayer(marker);
+    }
+    markerUpdateQueue.clear();
+    updateTimeout = null;
+}
+
+function queueMarkerUpdate(marker) {
+    markerUpdateQueue.add(marker);
+    if (!updateTimeout) {
+        updateTimeout = setTimeout(processMarkerUpdates, 100);
+    }
 }
 
 /**
@@ -52,7 +214,8 @@ function updateStreetStatus(streetId, isRaining, source) {
 
     // Remove existing marker if any
     if (rainMarkers.has(streetId)) {
-        map.removeLayer(rainMarkers.get(streetId));
+        const oldMarker = rainMarkers.get(streetId);
+        markerCluster.removeLayer(oldMarker);
     }
 
     // Create new marker
@@ -60,11 +223,7 @@ function updateStreetStatus(streetId, isRaining, source) {
     const center = [coords[Math.floor(coords.length / 2)][1], coords[Math.floor(coords.length / 2)][0]];
     
     const marker = L.marker(center, {
-        icon: L.divIcon({
-            className: isRaining ? 'rain-marker' : 'dry-marker',
-            html: isRaining ? '🌧️' : '☀️',
-            iconSize: [20, 20]
-        })
+        icon: isRaining ? rainIcon : dryIcon
     });
 
     marker.bindPopup(`
@@ -73,8 +232,8 @@ function updateStreetStatus(streetId, isRaining, source) {
         Source: ${source}
     `);
 
-    marker.addTo(map);
     rainMarkers.set(streetId, marker);
+    queueMarkerUpdate(marker);
 
     // Update Firebase if user reported
     if (source === 'user') {
