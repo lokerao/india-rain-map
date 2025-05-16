@@ -11,6 +11,35 @@ let weatherMarkers = new Map();
 let routeWeatherData = [];
 let currentRoute = null;
 
+// Custom map styles
+const mapStyles = [
+    {
+        featureType: "road",
+        elementType: "geometry",
+        stylers: [{ visibility: "simplified" }]
+    },
+    {
+        featureType: "road.arterial",
+        elementType: "geometry",
+        stylers: [{ color: "#ffffff" }]
+    },
+    {
+        featureType: "landscape",
+        elementType: "geometry",
+        stylers: [{ color: "#f5f5f5" }]
+    },
+    {
+        featureType: "poi",
+        elementType: "labels",
+        stylers: [{ visibility: "off" }]
+    },
+    {
+        featureType: "water",
+        elementType: "geometry",
+        stylers: [{ color: "#c9eaf9" }]
+    }
+];
+
 // Initialize map and services
 function initializeMap() {
     console.log('Initializing map...');
@@ -32,23 +61,22 @@ function initializeMap() {
         streetViewControl: false,
         fullscreenControl: true,
         zoomControl: true,
-        styles: [
-            {
-                featureType: "poi",
-                elementType: "labels",
-                stylers: [{ visibility: "off" }]
-            }
-        ]
+        styles: mapStyles,
+        mapTypeId: google.maps.MapTypeId.ROADMAP
     });
 
-    // Initialize directions service and renderer
+    // Initialize directions service
     directionsService = new google.maps.DirectionsService();
+    
+    // Custom route renderer
     directionsRenderer = new google.maps.DirectionsRenderer({
         map: map,
         suppressMarkers: true,
+        preserveViewport: false,
         polylineOptions: {
             strokeColor: '#4a90e2',
-            strokeWeight: 4
+            strokeWeight: 5,
+            strokeOpacity: 0.8
         }
     });
 
@@ -89,16 +117,24 @@ function hideLoading() {
 }
 
 /**
- * Create a weather marker
+ * Create a weather marker with custom icon
  */
 function createWeatherMarker(position, weather) {
+    // Create a custom marker icon
+    const markerIcon = {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: weather.isRaining ? '#4a90e2' : '#f5b041',
+        fillOpacity: 0.7,
+        strokeWeight: 2,
+        strokeColor: weather.isRaining ? '#2471a3' : '#d35400',
+        scale: 8
+    };
+
     const marker = new google.maps.Marker({
         position,
         map,
-        icon: {
-            url: `data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text y="50" x="50" text-anchor="middle" dominant-baseline="middle" font-size="80px">${weather.isRaining ? '🌧️' : '☀️'}</text></svg>`,
-            scaledSize: new google.maps.Size(40, 40)
-        }
+        icon: markerIcon,
+        animation: google.maps.Animation.DROP
     });
 
     const infoWindow = new google.maps.InfoWindow({
@@ -120,10 +156,10 @@ function createWeatherMarker(position, weather) {
 }
 
 /**
- * Update route weather display
+ * Update route weather display with colored segments
  */
 async function updateRouteWeather(route) {
-    // Clear existing markers
+    // Clear existing markers and polylines
     weatherMarkers.forEach(marker => marker.setMap(null));
     weatherMarkers.clear();
     
@@ -136,16 +172,45 @@ async function updateRouteWeather(route) {
     // Get weather data for route
     const weatherPoints = await getRouteWeather(path);
 
-    // Create markers for weather points
-    weatherPoints.forEach(point => {
+    // Create markers and colored route segments
+    for (let i = 0; i < weatherPoints.length - 1; i++) {
+        const point = weatherPoints[i];
+        const nextPoint = weatherPoints[i + 1];
+
         if (point.weather) {
+            // Create weather marker
             const marker = createWeatherMarker(
                 { lat: point.lat, lng: point.lng },
                 point.weather
             );
             weatherMarkers.set(`${point.lat},${point.lng}`, marker);
+
+            // Create colored route segment
+            if (nextPoint) {
+                new google.maps.Polyline({
+                    path: [
+                        { lat: point.lat, lng: point.lng },
+                        { lat: nextPoint.lat, lng: nextPoint.lng }
+                    ],
+                    geodesic: true,
+                    strokeColor: point.weather.isRaining ? '#2471a3' : '#808B96',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 5,
+                    map: map
+                });
+            }
         }
-    });
+    }
+
+    // Add marker for the last point
+    const lastPoint = weatherPoints[weatherPoints.length - 1];
+    if (lastPoint?.weather) {
+        const marker = createWeatherMarker(
+            { lat: lastPoint.lat, lng: lastPoint.lng },
+            lastPoint.weather
+        );
+        weatherMarkers.set(`${lastPoint.lat},${lastPoint.lng}`, marker);
+    }
 
     // Update route info
     const routeInfo = document.getElementById('route-info');
