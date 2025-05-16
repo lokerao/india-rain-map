@@ -105,14 +105,12 @@ async function initializeMap() {
 }
 
 /**
- * Create a weather marker with custom icon
+ * Create a weather marker with custom icon and enhanced info window
  */
 function createWeatherMarker(position, weather) {
-    // Create a custom marker
     const markerElement = document.createElement('gmp-advanced-marker');
     markerElement.position = position;
     
-    // Create custom marker content
     const markerContent = document.createElement('div');
     markerContent.className = 'weather-marker';
     markerContent.style.backgroundColor = weather.isRaining ? '#4a90e2' : '#f5b041';
@@ -121,14 +119,40 @@ function createWeatherMarker(position, weather) {
     markerElement.appendChild(markerContent);
     markerElement.map = map;
 
-    // Create info window
+    // Create enhanced info window
     const infoWindow = new google.maps.InfoWindow({
         content: `
             <div class="weather-info">
-                <p><strong>Weather Status:</strong> ${weather.isRaining ? 'Raining' : 'Dry'}</p>
-                <p><strong>Confidence:</strong> ${weather.confidence.toFixed(1)}%</p>
-                <p><strong>Description:</strong> ${weather.description}</p>
-                <p><small>Based on ${weather.sources} weather sources</small></p>
+                <p>
+                    <strong>Weather Status:</strong>
+                    <span>${weather.isRaining ? '🌧️ Raining' : '☀️ Dry'}</span>
+                </p>
+                <p>
+                    <strong>Confidence:</strong>
+                    <span>${weather.confidence.toFixed(1)}%</span>
+                </p>
+                <p>
+                    <strong>Description:</strong>
+                    <span>${weather.description}</span>
+                </p>
+                <div class="weather-details">
+                    <div class="weather-detail">
+                        <strong>${weather.temperature}°C</strong>
+                        <span>Temperature</span>
+                    </div>
+                    <div class="weather-detail">
+                        <strong>${weather.humidity}%</strong>
+                        <span>Humidity</span>
+                    </div>
+                    <div class="weather-detail">
+                        <strong>${weather.windSpeed} km/h</strong>
+                        <span>Wind Speed</span>
+                    </div>
+                    <div class="weather-detail">
+                        <strong>${weather.sources}</strong>
+                        <span>Sources</span>
+                    </div>
+                </div>
             </div>
         `
     });
@@ -211,7 +235,7 @@ async function updateRouteWeather(route) {
 }
 
 /**
- * Calculate and display route
+ * Calculate and display optimized route
  */
 async function calculateRoute() {
     const start = startPicker.value;
@@ -224,11 +248,13 @@ async function calculateRoute() {
 
     showLoading();
     try {
+        // Get route alternatives
         const result = await new Promise((resolve, reject) => {
             directionsService.route({
                 origin: start.location,
                 destination: end.location,
                 travelMode: google.maps.TravelMode.DRIVING,
+                provideRouteAlternatives: true,
                 optimizeWaypoints: true
             }, (result, status) => {
                 if (status === google.maps.DirectionsStatus.OK) {
@@ -239,18 +265,71 @@ async function calculateRoute() {
             });
         });
 
-        directionsRenderer.setDirections(result);
-        currentRoute = result.routes[0].legs[0];
+        // Get weather data for all routes
+        const routesWithWeather = await Promise.all(
+            result.routes.map(async route => {
+                const path = route.overview_path.map(point => ({
+                    lat: point.lat(),
+                    lng: point.lng()
+                }));
+                const weatherPoints = await getRouteWeather(path);
+                const rainPercentage = (weatherPoints.filter(p => p.weather?.isRaining).length / weatherPoints.length * 100);
+                
+                return {
+                    route,
+                    weatherPoints,
+                    rainPercentage,
+                    distance: route.legs[0].distance.value,
+                    duration: route.legs[0].duration.value
+                };
+            })
+        );
+
+        // Find the best route (minimize rain and duration)
+        const bestRoute = routesWithWeather.reduce((best, current) => {
+            const currentScore = (current.rainPercentage * 0.7) + ((current.duration / 60) * 0.3);
+            const bestScore = (best.rainPercentage * 0.7) + ((best.duration / 60) * 0.3);
+            return currentScore < bestScore ? current : best;
+        });
+
+        // Display the best route
+        directionsRenderer.setDirections({
+            routes: [bestRoute.route],
+            request: result.request
+        });
+        currentRoute = bestRoute.route.legs[0];
         
         // Fit the map to show the entire route
         const bounds = new google.maps.LatLngBounds();
-        result.routes[0].legs[0].steps.forEach(step => {
+        bestRoute.route.legs[0].steps.forEach(step => {
             bounds.extend(step.start_location);
             bounds.extend(step.end_location);
         });
         map.fitBounds(bounds);
         
-        await updateRouteWeather(currentRoute);
+        // Update weather visualization
+        await updateRouteWeather(currentRoute, bestRoute.weatherPoints);
+
+        // Update route info with enhanced weather stats
+        const routeInfo = document.getElementById('route-info');
+        routeInfo.innerHTML = `
+            <div class="route-summary">
+                <div class="weather-stats">
+                    <div class="weather-stat">
+                        <div class="weather-stat-value">${(bestRoute.distance / 1000).toFixed(1)} km</div>
+                        <div class="weather-stat-label">Distance</div>
+                    </div>
+                    <div class="weather-stat">
+                        <div class="weather-stat-value">${Math.round(bestRoute.duration / 60)} mins</div>
+                        <div class="weather-stat-label">Duration</div>
+                    </div>
+                    <div class="weather-stat">
+                        <div class="weather-stat-value">${bestRoute.rainPercentage.toFixed(1)}%</div>
+                        <div class="weather-stat-label">Rain Chance</div>
+                    </div>
+                </div>
+            </div>
+        `;
     } catch (error) {
         console.error('Route error:', error);
         alert('Failed to calculate route. Please try again.');

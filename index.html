@@ -7,6 +7,14 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
+    
+    <!-- Load environment variables -->
+    <script>
+        // This will be replaced by Netlify during build
+        window.ENV = {
+            GOOGLE_MAPS_API_KEY: '<%=process.env.GOOGLE_MAPS_API_KEY%>'
+        };
+    </script>
 </head>
 <body>
     <!-- Map container -->
@@ -49,8 +57,13 @@
     </div>
 
     <!-- Google Maps Components -->
-    <gmpx-api-loader key="AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54" solution-channel="GMP_QB_locatorplus_v7">
+    <gmpx-api-loader solution-channel="GMP_QB_locatorplus_v7">
     </gmpx-api-loader>
+
+    <script>
+        // Set the API key for Google Maps components
+        document.querySelector('gmpx-api-loader').setAttribute('key', window.ENV.GOOGLE_MAPS_API_KEY);
+    </script>
 
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/@googlemaps/extended-component-library/0.6.11/index.min.js"></script>
 

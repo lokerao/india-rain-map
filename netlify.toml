@@ -1,12 +1,43 @@
 [build]
   publish = "."
   functions = "netlify/functions"
+  command = "npm run build"
 
 [dev]
   functions = "netlify/functions"
   publish = "."
 
+[build.processing]
+  skip_processing = false
+
+[build.processing.html]
+  pretty_urls = true
+
+[build.processing.css]
+  bundle = true
+  minify = true
+
+[build.processing.js]
+  bundle = true
+  minify = true
+
+[build.processing.images]
+  compress = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
-  status = 200 
+  status = 200
+
+[template.environment]
+  GOOGLE_MAPS_API_KEY = "Google Maps API Key"
+  GOOGLE_MAPS_WEATHER_API_KEY = "Google Maps Weather API Key"
+  OPENWEATHERMAP_API_KEY = "OpenWeatherMap API Key"
+  WEATHERAPI_KEY = "WeatherAPI Key"
+  TOMORROW_API_KEY = "Tomorrow.io API Key"
+  FIREBASE_API_KEY = "Firebase API Key"
+  FIREBASE_AUTH_DOMAIN = "Firebase Auth Domain"
+  FIREBASE_PROJECT_ID = "Firebase Project ID"
+  FIREBASE_STORAGE_BUCKET = "Firebase Storage Bucket"
+  FIREBASE_MESSAGING_SENDER_ID = "Firebase Messaging Sender ID"
+  FIREBASE_APP_ID = "Firebase App ID" 
