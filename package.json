@@ -1,0 +1,22 @@
+{
+  "name": "india-rain-map",
+  "version": "1.0.0",
+  "description": "Real-time rain mapping application for Indian streets with user reporting",
+  "main": "app.js",
+  "scripts": {
+    "start": "serve .",
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "osmtogeojson": "^3.0.0-beta.5",
+    "firebase": "^10.8.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.16.2",
+    "serve": "^14.2.1"
+  },
+  "keywords": ["rain", "map", "india", "weather", "crowdsourcing"],
+  "author": "",
+  "license": "MIT"
+} 
