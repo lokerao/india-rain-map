@@ -5,8 +5,8 @@ import { getWeather, getRouteWeather } from './weather-service.js';
 let map;
 let directionsService;
 let directionsRenderer;
-let startAutocomplete;
-let endAutocomplete;
+let startPicker;
+let endPicker;
 let weatherMarkers = new Map();
 let routeWeatherData = [];
 let currentRoute = null;
@@ -41,13 +41,19 @@ const mapStyles = [
 ];
 
 // Initialize map and services
-function initializeMap() {
+async function initializeMap() {
     console.log('Initializing map...');
     
-    // Initialize map centered on India
-    map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 20.5937, lng: 78.9629 },
-        zoom: 5,
+    // Wait for custom elements to be defined
+    await customElements.whenDefined('gmp-map');
+    await customElements.whenDefined('gmpx-place-picker');
+
+    // Get map instance
+    const mapElement = document.querySelector('gmp-map');
+    map = await mapElement.innerMap;
+
+    // Set map options
+    map.setOptions({
         restriction: {
             latLngBounds: {
                 north: 37.2937,
@@ -61,18 +67,14 @@ function initializeMap() {
         streetViewControl: false,
         fullscreenControl: true,
         zoomControl: true,
-        styles: mapStyles,
-        mapTypeId: google.maps.MapTypeId.ROADMAP
+        styles: mapStyles
     });
 
-    // Initialize directions service
+    // Initialize directions service and renderer
     directionsService = new google.maps.DirectionsService();
-    
-    // Custom route renderer
     directionsRenderer = new google.maps.DirectionsRenderer({
         map: map,
         suppressMarkers: true,
-        preserveViewport: false,
         polylineOptions: {
             strokeColor: '#4a90e2',
             strokeWeight: 5,
@@ -80,26 +82,21 @@ function initializeMap() {
         }
     });
 
-    // Initialize Places Autocomplete with session token
-    const sessionToken = new google.maps.places.AutocompleteSessionToken();
-    const startInput = document.getElementById('start-location');
-    const endInput = document.getElementById('end-location');
+    // Initialize place pickers
+    startPicker = document.getElementById('start-location');
+    endPicker = document.getElementById('end-location');
 
-    const autocompleteOptions = {
-        componentRestrictions: { country: 'in' },
-        fields: ['formatted_address', 'geometry', 'name'],
-        sessionToken: sessionToken,
-        types: ['geocode', 'establishment'],
-        strictBounds: false
-    };
-
-    startAutocomplete = new google.maps.places.Autocomplete(startInput, autocompleteOptions);
-    endAutocomplete = new google.maps.places.Autocomplete(endInput, autocompleteOptions);
-
-    // Bias the autocomplete results to current map bounds
-    map.addListener('bounds_changed', () => {
-        startAutocomplete.setBounds(map.getBounds());
-        endAutocomplete.setBounds(map.getBounds());
+    // Configure place pickers for India
+    [startPicker, endPicker].forEach(picker => {
+        picker.componentRestrictions = { country: 'in' };
+        picker.types = ['geocode', 'establishment'];
+        
+        picker.addEventListener('gmpx-placechange', () => {
+            const place = picker.value;
+            if (place && place.location) {
+                map.panTo(place.location);
+            }
+        });
     });
 
     // Add event listeners
@@ -107,36 +104,24 @@ function initializeMap() {
     setupLocationButtons();
 }
 
-// Loading indicator
-const loading = document.getElementById('loading');
-function showLoading() {
-    loading.classList.add('active');
-}
-function hideLoading() {
-    loading.classList.remove('active');
-}
-
 /**
  * Create a weather marker with custom icon
  */
 function createWeatherMarker(position, weather) {
-    // Create a custom marker icon
-    const markerIcon = {
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: weather.isRaining ? '#4a90e2' : '#f5b041',
-        fillOpacity: 0.7,
-        strokeWeight: 2,
-        strokeColor: weather.isRaining ? '#2471a3' : '#d35400',
-        scale: 8
-    };
+    // Create a custom marker
+    const markerElement = document.createElement('gmp-advanced-marker');
+    markerElement.position = position;
+    
+    // Create custom marker content
+    const markerContent = document.createElement('div');
+    markerContent.className = 'weather-marker';
+    markerContent.style.backgroundColor = weather.isRaining ? '#4a90e2' : '#f5b041';
+    markerContent.style.borderColor = weather.isRaining ? '#2471a3' : '#d35400';
+    
+    markerElement.appendChild(markerContent);
+    markerElement.map = map;
 
-    const marker = new google.maps.Marker({
-        position,
-        map,
-        icon: markerIcon,
-        animation: google.maps.Animation.DROP
-    });
-
+    // Create info window
     const infoWindow = new google.maps.InfoWindow({
         content: `
             <div class="weather-info">
@@ -148,11 +133,11 @@ function createWeatherMarker(position, weather) {
         `
     });
 
-    marker.addListener('click', () => {
-        infoWindow.open(map, marker);
+    markerElement.addEventListener('click', () => {
+        infoWindow.open(map, markerElement);
     });
 
-    return marker;
+    return markerElement;
 }
 
 /**
@@ -160,7 +145,7 @@ function createWeatherMarker(position, weather) {
  */
 async function updateRouteWeather(route) {
     // Clear existing markers and polylines
-    weatherMarkers.forEach(marker => marker.setMap(null));
+    weatherMarkers.forEach(marker => marker.map = null);
     weatherMarkers.clear();
     
     // Get route path
@@ -229,11 +214,11 @@ async function updateRouteWeather(route) {
  * Calculate and display route
  */
 async function calculateRoute() {
-    const start = startAutocomplete.getPlace();
-    const end = endAutocomplete.getPlace();
+    const start = startPicker.value;
+    const end = endPicker.value;
 
-    if (!start?.geometry || !end?.geometry) {
-        alert('Please select locations from the dropdown suggestions');
+    if (!start?.location || !end?.location) {
+        alert('Please select both start and end locations from the suggestions');
         return;
     }
 
@@ -241,8 +226,8 @@ async function calculateRoute() {
     try {
         const result = await new Promise((resolve, reject) => {
             directionsService.route({
-                origin: start.geometry.location,
-                destination: end.geometry.location,
+                origin: start.location,
+                destination: end.location,
                 travelMode: google.maps.TravelMode.DRIVING,
                 optimizeWaypoints: true
             }, (result, status) => {
@@ -283,23 +268,33 @@ function setupLocationButtons() {
             if (navigator.geolocation) {
                 showLoading();
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const input = btn.dataset.type === 'start' ? startInput : endInput;
+                    async (position) => {
+                        const picker = btn.dataset.type === 'start' ? startPicker : endPicker;
                         const geocoder = new google.maps.Geocoder();
                         
-                        geocoder.geocode({
-                            location: {
-                                lat: position.coords.latitude,
-                                lng: position.coords.longitude
-                            }
-                        }, (results, status) => {
-                            hideLoading();
-                            if (status === google.maps.GeocoderStatus.OK && results[0]) {
-                                input.value = results[0].formatted_address;
+                        try {
+                            const result = await geocoder.geocode({
+                                location: {
+                                    lat: position.coords.latitude,
+                                    lng: position.coords.longitude
+                                }
+                            });
+                            
+                            if (result.results[0]) {
+                                picker.value = {
+                                    location: result.results[0].geometry.location,
+                                    formattedAddress: result.results[0].formatted_address,
+                                    name: result.results[0].formatted_address
+                                };
                             } else {
                                 alert('Could not find address for this location');
                             }
-                        });
+                        } catch (error) {
+                            console.error('Geocoding error:', error);
+                            alert('Error getting address for your location');
+                        } finally {
+                            hideLoading();
+                        }
                     },
                     (error) => {
                         hideLoading();
@@ -313,13 +308,14 @@ function setupLocationButtons() {
     });
 }
 
+// Loading indicator
+const loading = document.getElementById('loading');
+function showLoading() {
+    loading.classList.add('active');
+}
+function hideLoading() {
+    loading.classList.remove('active');
+}
+
 // Initialize the map when the script loads
-window.addEventListener('load', () => {
-    console.log('Page loaded, checking Google Maps API...');
-    if (window.google && window.google.maps) {
-        initializeMap();
-    } else {
-        console.error('Google Maps API not loaded');
-        alert('Error loading Google Maps. Please check your internet connection and try again.');
-    }
-}); 
+document.addEventListener('DOMContentLoaded', initializeMap); 

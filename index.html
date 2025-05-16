@@ -10,24 +10,25 @@
 </head>
 <body>
     <!-- Map container -->
-    <div id="map"></div>
-    
-    <!-- Route Panel -->
-    <div id="route-panel" class="route-panel">
-        <h3>Plan Your Route</h3>
-        <div class="route-inputs">
-            <div class="input-group">
-                <input type="text" id="start-location" placeholder="Enter start location">
-                <button class="location-btn" data-type="start">📍</button>
+    <gmp-map id="map" center="20.5937,78.9629" zoom="5" map-id="8f541b0b9c7ab5c6">
+        <div slot="control-block-start-inline-start" class="place-picker-container">
+            <div class="route-panel">
+                <h3>Plan Your Route</h3>
+                <div class="route-inputs">
+                    <div class="input-group">
+                        <gmpx-place-picker id="start-location" placeholder="Enter start location"></gmpx-place-picker>
+                        <button class="location-btn" data-type="start">📍</button>
+                    </div>
+                    <div class="input-group">
+                        <gmpx-place-picker id="end-location" placeholder="Enter destination"></gmpx-place-picker>
+                        <button class="location-btn" data-type="end">📍</button>
+                    </div>
+                    <button id="get-route" class="route-btn">Get Route</button>
+                </div>
+                <div id="route-info" class="route-info"></div>
             </div>
-            <div class="input-group">
-                <input type="text" id="end-location" placeholder="Enter destination">
-                <button class="location-btn" data-type="end">📍</button>
-            </div>
-            <button id="get-route" class="route-btn">Get Route</button>
         </div>
-        <div id="route-info" class="route-info"></div>
-    </div>
+    </gmp-map>
 
     <!-- Report Form -->
     <div id="report-form" class="report-panel">
@@ -47,8 +48,11 @@
         <p>Loading map data...</p>
     </div>
 
-    <!-- Load Google Maps JavaScript API before other scripts -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54&libraries=places&callback=initMap" defer></script>
+    <!-- Google Maps Components -->
+    <gmpx-api-loader key="AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54" solution-channel="GMP_QB_locatorplus_v7">
+    </gmpx-api-loader>
+
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/@googlemaps/extended-component-library/0.6.11/index.min.js"></script>
 
     <!-- Firebase -->
     <script type="module">
@@ -62,13 +66,5 @@
     <script src="firebase-config.js" type="module"></script>
     <script src="weather-service.js" type="module"></script>
     <script src="app.js" type="module"></script>
-
-    <!-- Initialize Map -->
-    <script>
-        window.initMap = function() {
-            // Map will be initialized by app.js
-            console.log('Google Maps API loaded');
-        };
-    </script>
 </body>
 </html> 
