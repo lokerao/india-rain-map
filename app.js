@@ -1,69 +1,83 @@
 import { db, ref, onValue, set } from './firebase-config.js';
 import { getWeather, getRouteWeather } from './weather-service.js';
 
-// Initialize map centered on India
-const map = new google.maps.Map(document.getElementById('map'), {
-    center: { lat: 20.5937, lng: 78.9629 },
-    zoom: 5,
-    restriction: {
-        latLngBounds: {
-            north: 37.2937,
-            south: 8.0661,
-            west: 68.1097,
-            east: 97.4152
-        },
-        strictBounds: true
-    },
-    mapTypeControl: true,
-    streetViewControl: false,
-    fullscreenControl: true,
-    zoomControl: true,
-    styles: [
-        {
-            featureType: "poi",
-            elementType: "labels",
-            stylers: [{ visibility: "off" }]
-        }
-    ]
-});
-
-// Initialize services
-const directionsService = new google.maps.DirectionsService();
-const directionsRenderer = new google.maps.DirectionsRenderer({
-    map: map,
-    suppressMarkers: true, // We'll create our own markers
-    polylineOptions: {
-        strokeColor: '#4a90e2',
-        strokeWeight: 4
-    }
-});
-
-// Initialize Places Autocomplete with session token
-const sessionToken = new google.maps.places.AutocompleteSessionToken();
-const startInput = document.getElementById('start-location');
-const endInput = document.getElementById('end-location');
-
-const autocompleteOptions = {
-    componentRestrictions: { country: 'in' },
-    fields: ['formatted_address', 'geometry', 'name'],
-    sessionToken: sessionToken,
-    types: ['geocode', 'establishment'],
-    strictBounds: false
-};
-
-const startAutocomplete = new google.maps.places.Autocomplete(startInput, autocompleteOptions);
-const endAutocomplete = new google.maps.places.Autocomplete(endInput, autocompleteOptions);
-
-// Bias the autocomplete results to current map bounds
-map.addListener('bounds_changed', () => {
-    startAutocomplete.setBounds(map.getBounds());
-    endAutocomplete.setBounds(map.getBounds());
-});
-
-// Store markers and weather data
-const weatherMarkers = new Map();
-const routeWeatherData = [];
+// Store global variables
+let map;
+let directionsService;
+let directionsRenderer;
+let startAutocomplete;
+let endAutocomplete;
+let weatherMarkers = new Map();
+let routeWeatherData = [];
 let currentRoute = null;
+
+// Initialize map and services
+function initializeMap() {
+    console.log('Initializing map...');
+    
+    // Initialize map centered on India
+    map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 20.5937, lng: 78.9629 },
+        zoom: 5,
+        restriction: {
+            latLngBounds: {
+                north: 37.2937,
+                south: 8.0661,
+                west: 68.1097,
+                east: 97.4152
+            },
+            strictBounds: true
+        },
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: true,
+        zoomControl: true,
+        styles: [
+            {
+                featureType: "poi",
+                elementType: "labels",
+                stylers: [{ visibility: "off" }]
+            }
+        ]
+    });
+
+    // Initialize directions service and renderer
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map,
+        suppressMarkers: true,
+        polylineOptions: {
+            strokeColor: '#4a90e2',
+            strokeWeight: 4
+        }
+    });
+
+    // Initialize Places Autocomplete with session token
+    const sessionToken = new google.maps.places.AutocompleteSessionToken();
+    const startInput = document.getElementById('start-location');
+    const endInput = document.getElementById('end-location');
+
+    const autocompleteOptions = {
+        componentRestrictions: { country: 'in' },
+        fields: ['formatted_address', 'geometry', 'name'],
+        sessionToken: sessionToken,
+        types: ['geocode', 'establishment'],
+        strictBounds: false
+    };
+
+    startAutocomplete = new google.maps.places.Autocomplete(startInput, autocompleteOptions);
+    endAutocomplete = new google.maps.places.Autocomplete(endInput, autocompleteOptions);
+
+    // Bias the autocomplete results to current map bounds
+    map.addListener('bounds_changed', () => {
+        startAutocomplete.setBounds(map.getBounds());
+        endAutocomplete.setBounds(map.getBounds());
+    });
+
+    // Add event listeners
+    document.getElementById('get-route').addEventListener('click', calculateRoute);
+    setupLocationButtons();
+}
 
 // Loading indicator
 const loading = document.getElementById('loading');
@@ -195,40 +209,52 @@ async function calculateRoute() {
     }
 }
 
-// Event Listeners
-document.getElementById('get-route').addEventListener('click', calculateRoute);
-
-// Use current location buttons
-document.querySelectorAll('.location-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        if (navigator.geolocation) {
-            showLoading();
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const input = btn.dataset.type === 'start' ? startInput : endInput;
-                    const geocoder = new google.maps.Geocoder();
-                    
-                    geocoder.geocode({
-                        location: {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude
-                        }
-                    }, (results, status) => {
+/**
+ * Setup location buttons
+ */
+function setupLocationButtons() {
+    document.querySelectorAll('.location-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (navigator.geolocation) {
+                showLoading();
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const input = btn.dataset.type === 'start' ? startInput : endInput;
+                        const geocoder = new google.maps.Geocoder();
+                        
+                        geocoder.geocode({
+                            location: {
+                                lat: position.coords.latitude,
+                                lng: position.coords.longitude
+                            }
+                        }, (results, status) => {
+                            hideLoading();
+                            if (status === google.maps.GeocoderStatus.OK && results[0]) {
+                                input.value = results[0].formatted_address;
+                            } else {
+                                alert('Could not find address for this location');
+                            }
+                        });
+                    },
+                    (error) => {
                         hideLoading();
-                        if (status === google.maps.GeocoderStatus.OK && results[0]) {
-                            input.value = results[0].formatted_address;
-                        } else {
-                            alert('Could not find address for this location');
-                        }
-                    });
-                },
-                (error) => {
-                    hideLoading();
-                    alert('Error getting your location: ' + error.message);
-                }
-            );
-        } else {
-            alert('Geolocation is not supported by your browser');
-        }
+                        alert('Error getting your location: ' + error.message);
+                    }
+                );
+            } else {
+                alert('Geolocation is not supported by your browser');
+            }
+        });
     });
+}
+
+// Initialize the map when the script loads
+window.addEventListener('load', () => {
+    console.log('Page loaded, checking Google Maps API...');
+    if (window.google && window.google.maps) {
+        initializeMap();
+    } else {
+        console.error('Google Maps API not loaded');
+        alert('Error loading Google Maps. Please check your internet connection and try again.');
+    }
 }); 

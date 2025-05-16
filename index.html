@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Map container -->
     <div id="map"></div>
     
     <!-- Route Panel -->
@@ -46,6 +47,9 @@
         <p>Loading map data...</p>
     </div>
 
+    <!-- Load Google Maps JavaScript API before other scripts -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54&libraries=places&callback=initMap" defer></script>
+
     <!-- Firebase -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
@@ -54,12 +58,17 @@
         window.getDatabase = getDatabase;
     </script>
 
-    <!-- Google Maps JavaScript API -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54&libraries=places"></script>
-
     <!-- Application Scripts -->
     <script src="firebase-config.js" type="module"></script>
     <script src="weather-service.js" type="module"></script>
     <script src="app.js" type="module"></script>
+
+    <!-- Initialize Map -->
+    <script>
+        window.initMap = function() {
+            // Map will be initialized by app.js
+            console.log('Google Maps API loaded');
+        };
+    </script>
 </body>
 </html> 
