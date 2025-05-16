@@ -96,3 +96,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - OpenWeatherMap for weather data
 - Firebase for the realtime database
 - Netlify for hosting and serverless functions # india-rain-map
+# india-rain-map
