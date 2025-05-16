@@ -13,24 +13,51 @@ const map = new google.maps.Map(document.getElementById('map'), {
             east: 97.4152
         },
         strictBounds: true
-    }
+    },
+    mapTypeControl: true,
+    streetViewControl: false,
+    fullscreenControl: true,
+    zoomControl: true,
+    styles: [
+        {
+            featureType: "poi",
+            elementType: "labels",
+            stylers: [{ visibility: "off" }]
+        }
+    ]
 });
 
 // Initialize services
 const directionsService = new google.maps.DirectionsService();
 const directionsRenderer = new google.maps.DirectionsRenderer({
     map: map,
-    suppressMarkers: true // We'll create our own markers
+    suppressMarkers: true, // We'll create our own markers
+    polylineOptions: {
+        strokeColor: '#4a90e2',
+        strokeWeight: 4
+    }
 });
 
-// Initialize Places Autocomplete
+// Initialize Places Autocomplete with session token
+const sessionToken = new google.maps.places.AutocompleteSessionToken();
 const startInput = document.getElementById('start-location');
 const endInput = document.getElementById('end-location');
-const startAutocomplete = new google.maps.places.Autocomplete(startInput, {
-    componentRestrictions: { country: 'in' }
-});
-const endAutocomplete = new google.maps.places.Autocomplete(endInput, {
-    componentRestrictions: { country: 'in' }
+
+const autocompleteOptions = {
+    componentRestrictions: { country: 'in' },
+    fields: ['formatted_address', 'geometry', 'name'],
+    sessionToken: sessionToken,
+    types: ['geocode', 'establishment'],
+    strictBounds: false
+};
+
+const startAutocomplete = new google.maps.places.Autocomplete(startInput, autocompleteOptions);
+const endAutocomplete = new google.maps.places.Autocomplete(endInput, autocompleteOptions);
+
+// Bias the autocomplete results to current map bounds
+map.addListener('bounds_changed', () => {
+    startAutocomplete.setBounds(map.getBounds());
+    endAutocomplete.setBounds(map.getBounds());
 });
 
 // Store markers and weather data
@@ -126,8 +153,8 @@ async function calculateRoute() {
     const start = startAutocomplete.getPlace();
     const end = endAutocomplete.getPlace();
 
-    if (!start || !end) {
-        alert('Please select both start and end locations');
+    if (!start?.geometry || !end?.geometry) {
+        alert('Please select locations from the dropdown suggestions');
         return;
     }
 
@@ -137,7 +164,8 @@ async function calculateRoute() {
             directionsService.route({
                 origin: start.geometry.location,
                 destination: end.geometry.location,
-                travelMode: google.maps.TravelMode.DRIVING
+                travelMode: google.maps.TravelMode.DRIVING,
+                optimizeWaypoints: true
             }, (result, status) => {
                 if (status === google.maps.DirectionsStatus.OK) {
                     resolve(result);
@@ -149,6 +177,15 @@ async function calculateRoute() {
 
         directionsRenderer.setDirections(result);
         currentRoute = result.routes[0].legs[0];
+        
+        // Fit the map to show the entire route
+        const bounds = new google.maps.LatLngBounds();
+        result.routes[0].legs[0].steps.forEach(step => {
+            bounds.extend(step.start_location);
+            bounds.extend(step.end_location);
+        });
+        map.fitBounds(bounds);
+        
         await updateRouteWeather(currentRoute);
     } catch (error) {
         console.error('Route error:', error);
