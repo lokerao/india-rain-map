@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>India Rain Map - Live Weather Routes</title>
+    <title>India Rain Map - Smart Weather Routes</title>
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     
     <!-- Load environment variables -->
     <script>
@@ -17,43 +18,100 @@
     </script>
 </head>
 <body>
-    <!-- Map container -->
-    <gmp-map id="map" center="20.5937,78.9629" zoom="5" map-id="8f541b0b9c7ab5c6">
-        <div slot="control-block-start-inline-start" class="place-picker-container">
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>Smart Weather Routes</h1>
+                <p class="subtitle">Plan your journey around the weather</p>
+            </div>
+
+            <!-- Route Planning Panel -->
             <div class="route-panel">
-                <h3>Plan Your Route</h3>
                 <div class="route-inputs">
-                    <div class="input-group">
-                        <gmpx-place-picker id="start-location" placeholder="Enter start location"></gmpx-place-picker>
-                        <button class="location-btn" data-type="start">📍</button>
+                    <div class="input-group start">
+                        <label>Start Location</label>
+                        <div class="input-wrapper">
+                            <gmpx-place-picker id="start-location" placeholder="Enter start point"></gmpx-place-picker>
+                            <button class="location-btn" data-type="start" title="Use current location">
+                                <span class="icon">📍</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <gmpx-place-picker id="end-location" placeholder="Enter destination"></gmpx-place-picker>
-                        <button class="location-btn" data-type="end">📍</button>
+                    
+                    <div class="input-group end">
+                        <label>Destination</label>
+                        <div class="input-wrapper">
+                            <gmpx-place-picker id="end-location" placeholder="Enter destination"></gmpx-place-picker>
+                            <button class="location-btn" data-type="end" title="Use current location">
+                                <span class="icon">📍</span>
+                            </button>
+                        </div>
                     </div>
-                    <button id="get-route" class="route-btn">Get Route</button>
+
+                    <div class="route-options">
+                        <label class="route-preference">
+                            <input type="radio" name="route-pref" value="best" checked>
+                            <span class="radio-label">Best Route</span>
+                            <span class="description">Balance of time & weather</span>
+                        </label>
+                        <label class="route-preference">
+                            <input type="radio" name="route-pref" value="dry">
+                            <span class="radio-label">Driest Route</span>
+                            <span class="description">Minimize rain exposure</span>
+                        </label>
+                        <label class="route-preference">
+                            <input type="radio" name="route-pref" value="fast">
+                            <span class="radio-label">Fastest Route</span>
+                            <span class="description">Minimize travel time</span>
+                        </label>
+                    </div>
+
+                    <button id="get-route" class="route-btn">
+                        <span class="icon">🚗</span>
+                        Get Route
+                    </button>
                 </div>
+
+                <!-- Route Information -->
                 <div id="route-info" class="route-info"></div>
             </div>
-        </div>
-    </gmp-map>
 
-    <!-- Report Form -->
-    <div id="report-form" class="report-panel">
-        <h3>Report Rain Condition</h3>
-        <form id="weather-report">
-            <div class="report-buttons">
-                <button type="button" class="report-btn rain" data-condition="rain">🌧️ Raining</button>
-                <button type="button" class="report-btn dry" data-condition="dry">☀️ Dry</button>
+            <!-- Weather Legend -->
+            <div class="weather-legend">
+                <h3>Weather Conditions</h3>
+                <div class="legend-item">
+                    <span class="legend-marker rain"></span>
+                    <span>Rain</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-marker dry"></span>
+                    <span>Dry</span>
+                </div>
             </div>
-            <p class="location-status">Click on the map to select location</p>
-        </form>
+        </div>
+
+        <!-- Map Container -->
+        <div class="map-container">
+            <gmp-map id="map" center="20.5937,78.9629" zoom="5" map-id="8f541b0b9c7ab5c6"></gmp-map>
+            
+            <!-- Map Controls -->
+            <div class="map-controls">
+                <button id="toggle-traffic" class="map-control-btn" title="Toggle Traffic">🚦</button>
+                <button id="toggle-weather" class="map-control-btn" title="Toggle Weather Layer">🌦️</button>
+                <button id="recenter-map" class="map-control-btn" title="Recenter Map">⌖</button>
+            </div>
+        </div>
     </div>
 
-    <!-- Loading indicator -->
+    <!-- Loading Overlay -->
     <div id="loading" class="loading-overlay">
-        <div class="loading-spinner"></div>
-        <p>Loading map data...</p>
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p>Finding the best route...</p>
+            <p class="loading-detail">Analyzing weather conditions</p>
+        </div>
     </div>
 
     <!-- Google Maps Components -->

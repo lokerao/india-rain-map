@@ -10,6 +10,9 @@ let endPicker;
 let weatherMarkers = new Map();
 let routeWeatherData = [];
 let currentRoute = null;
+let trafficLayer = null;
+let weatherLayer = null;
+let initialBounds = null;
 
 // Custom map styles
 const mapStyles = [
@@ -70,6 +73,13 @@ async function initializeMap() {
         styles: mapStyles
     });
 
+    // Initialize layers
+    trafficLayer = new google.maps.TrafficLayer();
+    weatherLayer = new google.maps.visualization.WeatherLayer({
+        temperatureUnit: google.maps.visualization.TemperatureUnit.CELSIUS,
+        windSpeedUnit: google.maps.visualization.WindSpeedUnit.KILOMETERS_PER_HOUR
+    });
+
     // Initialize directions service and renderer
     directionsService = new google.maps.DirectionsService();
     directionsRenderer = new google.maps.DirectionsRenderer({
@@ -99,9 +109,155 @@ async function initializeMap() {
         });
     });
 
+    // Store initial bounds
+    initialBounds = map.getBounds();
+
     // Add event listeners
+    setupEventListeners();
+}
+
+/**
+ * Setup all event listeners
+ */
+function setupEventListeners() {
+    // Route calculation
     document.getElementById('get-route').addEventListener('click', calculateRoute);
-    setupLocationButtons();
+    
+    // Location buttons
+    document.querySelectorAll('.location-btn').forEach(btn => {
+        btn.addEventListener('click', handleLocationButton);
+    });
+
+    // Map controls
+    document.getElementById('toggle-traffic').addEventListener('click', toggleTraffic);
+    document.getElementById('toggle-weather').addEventListener('click', toggleWeather);
+    document.getElementById('recenter-map').addEventListener('click', recenterMap);
+
+    // Mobile sidebar toggle
+    if (window.innerWidth <= 768) {
+        const sidebar = document.querySelector('.sidebar');
+        let startY = 0;
+        let isDragging = false;
+
+        sidebar.addEventListener('touchstart', (e) => {
+            startY = e.touches[0].clientY;
+            isDragging = true;
+        });
+
+        sidebar.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const deltaY = e.touches[0].clientY - startY;
+            if (deltaY > 50) {
+                sidebar.classList.remove('active');
+            } else if (deltaY < -50) {
+                sidebar.classList.add('active');
+            }
+        });
+
+        sidebar.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+    }
+}
+
+/**
+ * Toggle traffic layer
+ */
+function toggleTraffic() {
+    const button = document.getElementById('toggle-traffic');
+    if (trafficLayer.getMap()) {
+        trafficLayer.setMap(null);
+        button.style.backgroundColor = '#fff';
+    } else {
+        trafficLayer.setMap(map);
+        button.style.backgroundColor = '#e2e8f0';
+    }
+}
+
+/**
+ * Toggle weather layer
+ */
+function toggleWeather() {
+    const button = document.getElementById('toggle-weather');
+    if (weatherLayer.getMap()) {
+        weatherLayer.setMap(null);
+        button.style.backgroundColor = '#fff';
+    } else {
+        weatherLayer.setMap(map);
+        button.style.backgroundColor = '#e2e8f0';
+    }
+}
+
+/**
+ * Recenter map to initial bounds
+ */
+function recenterMap() {
+    if (initialBounds) {
+        map.fitBounds(initialBounds);
+    } else {
+        map.setCenter({ lat: 20.5937, lng: 78.9629 });
+        map.setZoom(5);
+    }
+}
+
+/**
+ * Handle location button click
+ */
+async function handleLocationButton() {
+    if (navigator.geolocation) {
+        showLoading();
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const picker = this.dataset.type === 'start' ? startPicker : endPicker;
+                const geocoder = new google.maps.Geocoder();
+                
+                try {
+                    const result = await geocoder.geocode({
+                        location: {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        }
+                    });
+                    
+                    if (result.results[0]) {
+                        picker.value = {
+                            location: result.results[0].geometry.location,
+                            formattedAddress: result.results[0].formatted_address,
+                            name: result.results[0].formatted_address
+                        };
+                        map.panTo(result.results[0].geometry.location);
+                    } else {
+                        showError('Could not find address for this location');
+                    }
+                } catch (error) {
+                    console.error('Geocoding error:', error);
+                    showError('Error getting address for your location');
+                } finally {
+                    hideLoading();
+                }
+            },
+            (error) => {
+                hideLoading();
+                showError('Error getting your location: ' + error.message);
+            }
+        );
+    } else {
+        showError('Geolocation is not supported by your browser');
+    }
+}
+
+/**
+ * Show error message
+ */
+function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-message';
+    errorDiv.textContent = message;
+    document.body.appendChild(errorDiv);
+
+    setTimeout(() => {
+        errorDiv.remove();
+    }, 3000);
 }
 
 /**
@@ -240,9 +396,10 @@ async function updateRouteWeather(route) {
 async function calculateRoute() {
     const start = startPicker.value;
     const end = endPicker.value;
+    const routePreference = document.querySelector('input[name="route-pref"]:checked').value;
 
     if (!start?.location || !end?.location) {
-        alert('Please select both start and end locations from the suggestions');
+        showError('Please select both start and end locations');
         return;
     }
 
@@ -285,21 +442,35 @@ async function calculateRoute() {
             })
         );
 
-        // Find the best route (minimize rain and duration)
-        const bestRoute = routesWithWeather.reduce((best, current) => {
-            const currentScore = (current.rainPercentage * 0.7) + ((current.duration / 60) * 0.3);
-            const bestScore = (best.rainPercentage * 0.7) + ((best.duration / 60) * 0.3);
-            return currentScore < bestScore ? current : best;
-        });
+        // Select best route based on preference
+        let bestRoute;
+        switch (routePreference) {
+            case 'dry':
+                bestRoute = routesWithWeather.reduce((a, b) => 
+                    a.rainPercentage < b.rainPercentage ? a : b
+                );
+                break;
+            case 'fast':
+                bestRoute = routesWithWeather.reduce((a, b) => 
+                    a.duration < b.duration ? a : b
+                );
+                break;
+            default: // 'best' - balanced approach
+                bestRoute = routesWithWeather.reduce((a, b) => {
+                    const scoreA = (a.rainPercentage * 0.7) + ((a.duration / 60) * 0.3);
+                    const scoreB = (b.rainPercentage * 0.7) + ((b.duration / 60) * 0.3);
+                    return scoreA < scoreB ? a : b;
+                });
+        }
 
-        // Display the best route
+        // Display the selected route
         directionsRenderer.setDirections({
             routes: [bestRoute.route],
             request: result.request
         });
         currentRoute = bestRoute.route.legs[0];
         
-        // Fit the map to show the entire route
+        // Fit map to show the route
         const bounds = new google.maps.LatLngBounds();
         bestRoute.route.legs[0].steps.forEach(step => {
             bounds.extend(step.start_location);
@@ -310,89 +481,56 @@ async function calculateRoute() {
         // Update weather visualization
         await updateRouteWeather(currentRoute, bestRoute.weatherPoints);
 
-        // Update route info with enhanced weather stats
-        const routeInfo = document.getElementById('route-info');
-        routeInfo.innerHTML = `
-            <div class="route-summary">
-                <div class="weather-stats">
-                    <div class="weather-stat">
-                        <div class="weather-stat-value">${(bestRoute.distance / 1000).toFixed(1)} km</div>
-                        <div class="weather-stat-label">Distance</div>
-                    </div>
-                    <div class="weather-stat">
-                        <div class="weather-stat-value">${Math.round(bestRoute.duration / 60)} mins</div>
-                        <div class="weather-stat-label">Duration</div>
-                    </div>
-                    <div class="weather-stat">
-                        <div class="weather-stat-value">${bestRoute.rainPercentage.toFixed(1)}%</div>
-                        <div class="weather-stat-label">Rain Chance</div>
-                    </div>
-                </div>
-            </div>
-        `;
+        // Update route info
+        updateRouteInfo(bestRoute);
     } catch (error) {
         console.error('Route error:', error);
-        alert('Failed to calculate route. Please try again.');
+        showError('Failed to calculate route. Please try again.');
     } finally {
         hideLoading();
     }
 }
 
 /**
- * Setup location buttons
+ * Update route information display
  */
-function setupLocationButtons() {
-    document.querySelectorAll('.location-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (navigator.geolocation) {
-                showLoading();
-                navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        const picker = btn.dataset.type === 'start' ? startPicker : endPicker;
-                        const geocoder = new google.maps.Geocoder();
-                        
-                        try {
-                            const result = await geocoder.geocode({
-                                location: {
-                                    lat: position.coords.latitude,
-                                    lng: position.coords.longitude
-                                }
-                            });
-                            
-                            if (result.results[0]) {
-                                picker.value = {
-                                    location: result.results[0].geometry.location,
-                                    formattedAddress: result.results[0].formatted_address,
-                                    name: result.results[0].formatted_address
-                                };
-                            } else {
-                                alert('Could not find address for this location');
-                            }
-                        } catch (error) {
-                            console.error('Geocoding error:', error);
-                            alert('Error getting address for your location');
-                        } finally {
-                            hideLoading();
-                        }
-                    },
-                    (error) => {
-                        hideLoading();
-                        alert('Error getting your location: ' + error.message);
-                    }
-                );
-            } else {
-                alert('Geolocation is not supported by your browser');
-            }
-        });
-    });
+function updateRouteInfo(routeData) {
+    const routeInfo = document.getElementById('route-info');
+    
+    const hours = Math.floor(routeData.duration / 3600);
+    const minutes = Math.round((routeData.duration % 3600) / 60);
+    const timeString = hours > 0 ? 
+        `${hours}h ${minutes}m` : 
+        `${minutes}m`;
+
+    routeInfo.innerHTML = `
+        <div class="route-summary">
+            <div class="weather-stats">
+                <div class="weather-stat">
+                    <div class="weather-stat-value">${(routeData.distance / 1000).toFixed(1)}</div>
+                    <div class="weather-stat-label">Kilometers</div>
+                </div>
+                <div class="weather-stat">
+                    <div class="weather-stat-value">${timeString}</div>
+                    <div class="weather-stat-label">Duration</div>
+                </div>
+                <div class="weather-stat">
+                    <div class="weather-stat-value">${routeData.rainPercentage.toFixed(1)}%</div>
+                    <div class="weather-stat-label">Rain Chance</div>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
-// Loading indicator
-const loading = document.getElementById('loading');
+// Loading indicator functions
 function showLoading() {
+    const loading = document.getElementById('loading');
     loading.classList.add('active');
 }
+
 function hideLoading() {
+    const loading = document.getElementById('loading');
     loading.classList.remove('active');
 }
 
