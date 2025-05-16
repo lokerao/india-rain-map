@@ -3,38 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>India Rain Map - Live Street Weather</title>
-    
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-          crossorigin=""/>
-    
-    <!-- MarkerCluster CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
-    
-    <!-- Leaflet Search CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <title>India Rain Map - Live Weather Routes</title>
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
-
-    <!-- Preload critical resources -->
-    <link rel="preload" href="https://tile.openstreetmap.org/5/22/11.png" as="image">
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
-    <link rel="preload" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js" as="script">
 </head>
 <body>
     <div id="map"></div>
     
-    <!-- Search Control -->
-    <div id="search-container" class="search-panel">
-        <input type="text" id="search-input" placeholder="Search for a street in India...">
-        <button id="search-button">🔍</button>
-        <div id="search-results" class="search-results"></div>
+    <!-- Route Panel -->
+    <div id="route-panel" class="route-panel">
+        <h3>Plan Your Route</h3>
+        <div class="route-inputs">
+            <div class="input-group">
+                <input type="text" id="start-location" placeholder="Enter start location">
+                <button class="location-btn" data-type="start">📍</button>
+            </div>
+            <div class="input-group">
+                <input type="text" id="end-location" placeholder="Enter destination">
+                <button class="location-btn" data-type="end">📍</button>
+            </div>
+            <button id="get-route" class="route-btn">Get Route</button>
+        </div>
+        <div id="route-info" class="route-info"></div>
     </div>
-    
+
     <!-- Report Form -->
     <div id="report-form" class="report-panel">
         <h3>Report Rain Condition</h3>
@@ -53,17 +46,6 @@
         <p>Loading map data...</p>
     </div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-            crossorigin=""></script>
-    
-    <!-- MarkerCluster JS -->
-    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-    
-    <!-- Leaflet Search JS -->
-    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
-    
     <!-- Firebase -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
@@ -72,9 +54,12 @@
         window.getDatabase = getDatabase;
     </script>
 
+    <!-- Google Maps JavaScript API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAE2Fb0MosH4QnNlTAm9OSowGCdBkUfb54&libraries=places"></script>
+
     <!-- Application Scripts -->
     <script src="firebase-config.js" type="module"></script>
-    <script src="overpass-query.js" type="module"></script>
+    <script src="weather-service.js" type="module"></script>
     <script src="app.js" type="module"></script>
 </body>
 </html> 

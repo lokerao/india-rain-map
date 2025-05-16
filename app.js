@@ -1,160 +1,42 @@
 import { db, ref, onValue, set } from './firebase-config.js';
-import { throttledFetchStreets } from './overpass-query.js';
+import { getWeather, getRouteWeather } from './weather-service.js';
 
 // Initialize map centered on India
-const map = L.map('map', {
-    preferCanvas: true, // Use Canvas renderer for better performance
-    wheelDebounceTime: 150,
-    wheelPxPerZoomLevel: 120
-}).setView([20.5937, 78.9629], 5);
-
-// Add OpenStreetMap tile layer
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 19,
-    minZoom: 5,
-    crossOrigin: true,
-    maxNativeZoom: 18,
-    maxBounds: [
-        [8.0661, 68.1097], // Southwest coordinates of India
-        [37.2937, 97.4152]  // Northeast coordinates of India
-    ],
-    bounds: [
-        [8.0661, 68.1097], // Southwest coordinates of India
-        [37.2937, 97.4152]  // Northeast coordinates of India
-    ]
-}).addTo(map);
-
-// Initialize marker cluster group
-const markerCluster = L.markerClusterGroup({
-    maxClusterRadius: 50,
-    spiderfyOnMaxZoom: false,
-    showCoverageOnHover: false,
-    zoomToBoundsOnClick: true
-});
-map.addLayer(markerCluster);
-
-// Initialize geocoder
-const geocoder = L.Control.Geocoder.nominatim({
-    geocodingQueryParams: {
-        countrycodes: 'in', // Limit to India
-        bounded: 1,
-        viewbox: '68.1097,8.0661,97.4152,37.2937', // India bounds
-        limit: 5
+const map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 20.5937, lng: 78.9629 },
+    zoom: 5,
+    restriction: {
+        latLngBounds: {
+            north: 37.2937,
+            south: 8.0661,
+            west: 68.1097,
+            east: 97.4152
+        },
+        strictBounds: true
     }
 });
 
-// Search functionality
-const searchInput = document.getElementById('search-input');
-const searchButton = document.getElementById('search-button');
-const searchResults = document.getElementById('search-results');
-let searchTimeout = null;
-let searchMarker = null;
-
-async function performSearch(query) {
-    if (!query.trim()) {
-        searchResults.innerHTML = '';
-        searchResults.classList.remove('active');
-        return;
-    }
-
-    try {
-        showLoading();
-        const results = await new Promise((resolve) => {
-            geocoder.geocode(query, resolve);
-        });
-
-        searchResults.innerHTML = '';
-        
-        if (results.length === 0) {
-            searchResults.innerHTML = '<div class="search-result-item">No results found</div>';
-        } else {
-            results.forEach((result, index) => {
-                const item = document.createElement('div');
-                item.className = 'search-result-item';
-                item.textContent = result.name;
-                item.addEventListener('click', () => selectSearchResult(result));
-                searchResults.appendChild(item);
-            });
-        }
-        
-        searchResults.classList.add('active');
-    } catch (error) {
-        console.error('Search error:', error);
-        searchResults.innerHTML = '<div class="search-result-item">Search failed</div>';
-    } finally {
-        hideLoading();
-    }
-}
-
-function selectSearchResult(result) {
-    // Remove previous search marker if any
-    if (searchMarker) {
-        map.removeLayer(searchMarker);
-    }
-
-    // Create new marker
-    searchMarker = L.marker([result.center.lat, result.center.lng], {
-        icon: L.divIcon({
-            className: 'search-marker',
-            html: '📍',
-            iconSize: [24, 24]
-        })
-    }).addTo(map);
-
-    // Fly to location
-    map.flyTo([result.center.lat, result.center.lng], 16);
-
-    // Clear search results
-    searchResults.innerHTML = '';
-    searchResults.classList.remove('active');
-    searchInput.value = result.name;
-
-    // Load streets for this area
-    loadStreets();
-}
-
-// Event listeners for search
-searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
+// Initialize services
+const directionsService = new google.maps.DirectionsService();
+const directionsRenderer = new google.maps.DirectionsRenderer({
+    map: map,
+    suppressMarkers: true // We'll create our own markers
 });
 
-searchButton.addEventListener('click', () => {
-    performSearch(searchInput.value);
+// Initialize Places Autocomplete
+const startInput = document.getElementById('start-location');
+const endInput = document.getElementById('end-location');
+const startAutocomplete = new google.maps.places.Autocomplete(startInput, {
+    componentRestrictions: { country: 'in' }
+});
+const endAutocomplete = new google.maps.places.Autocomplete(endInput, {
+    componentRestrictions: { country: 'in' }
 });
 
-searchInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        performSearch(searchInput.value);
-    }
-});
-
-// Close search results when clicking outside
-document.addEventListener('click', (e) => {
-    if (!searchResults.contains(e.target) && !searchInput.contains(e.target)) {
-        searchResults.classList.remove('active');
-    }
-});
-
-// Store street data and markers
-const streets = new Map();
-const rainMarkers = new Map();
-const userReports = new Map();
-
-// Create marker icons once
-const rainIcon = L.divIcon({
-    className: 'rain-marker',
-    html: '🌧️',
-    iconSize: [20, 20]
-});
-
-const dryIcon = L.divIcon({
-    className: 'dry-marker',
-    html: '☀️',
-    iconSize: [20, 20]
-});
+// Store markers and weather data
+const weatherMarkers = new Map();
+const routeWeatherData = [];
+let currentRoute = null;
 
 // Loading indicator
 const loading = document.getElementById('loading');
@@ -165,173 +47,151 @@ function hideLoading() {
     loading.classList.remove('active');
 }
 
-// Batch marker updates
-const markerUpdateQueue = new Set();
-let updateTimeout = null;
-
-function processMarkerUpdates() {
-    markerCluster.clearLayers();
-    for (const marker of markerUpdateQueue) {
-        markerCluster.addLayer(marker);
-    }
-    markerUpdateQueue.clear();
-    updateTimeout = null;
-}
-
-function queueMarkerUpdate(marker) {
-    markerUpdateQueue.add(marker);
-    if (!updateTimeout) {
-        updateTimeout = setTimeout(processMarkerUpdates, 100);
-    }
-}
-
 /**
- * Fetch weather data for a location
- * @param {number} lat - Latitude
- * @param {number} lon - Longitude
- * @returns {Promise<Object>} Weather data
+ * Create a weather marker
  */
-async function fetchWeather(lat, lon) {
-    try {
-        const response = await fetch(`/.netlify/functions/weather?lat=${lat}&lon=${lon}`);
-        if (!response.ok) throw new Error('Weather request failed');
-        return response.json();
-    } catch (error) {
-        console.error('Error fetching weather:', error);
-        return null;
-    }
-}
-
-/**
- * Update street weather status
- * @param {string} streetId - Street identifier
- * @param {boolean} isRaining - Rain status
- * @param {string} source - Data source ('api' or 'user')
- */
-function updateStreetStatus(streetId, isRaining, source) {
-    const street = streets.get(streetId);
-    if (!street) return;
-
-    // Remove existing marker if any
-    if (rainMarkers.has(streetId)) {
-        const oldMarker = rainMarkers.get(streetId);
-        markerCluster.removeLayer(oldMarker);
-    }
-
-    // Create new marker
-    const coords = street.geometry.coordinates;
-    const center = [coords[Math.floor(coords.length / 2)][1], coords[Math.floor(coords.length / 2)][0]];
-    
-    const marker = L.marker(center, {
-        icon: isRaining ? rainIcon : dryIcon
+function createWeatherMarker(position, weather) {
+    const marker = new google.maps.Marker({
+        position,
+        map,
+        icon: {
+            url: `data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text y="50" x="50" text-anchor="middle" dominant-baseline="middle" font-size="80px">${weather.isRaining ? '🌧️' : '☀️'}</text></svg>`,
+            scaledSize: new google.maps.Size(40, 40)
+        }
     });
 
-    marker.bindPopup(`
-        <strong>${street.properties.name}</strong><br>
-        Status: ${isRaining ? 'Raining' : 'Dry'}<br>
-        Source: ${source}
-    `);
+    const infoWindow = new google.maps.InfoWindow({
+        content: `
+            <div class="weather-info">
+                <p><strong>Weather Status:</strong> ${weather.isRaining ? 'Raining' : 'Dry'}</p>
+                <p><strong>Confidence:</strong> ${weather.confidence.toFixed(1)}%</p>
+                <p><strong>Description:</strong> ${weather.description}</p>
+                <p><small>Based on ${weather.sources} weather sources</small></p>
+            </div>
+        `
+    });
 
-    rainMarkers.set(streetId, marker);
-    queueMarkerUpdate(marker);
+    marker.addListener('click', () => {
+        infoWindow.open(map, marker);
+    });
 
-    // Update Firebase if user reported
-    if (source === 'user') {
-        const reportRef = ref(db, `reports/${streetId}`);
-        set(reportRef, {
-            name: street.properties.name,
-            isRaining,
-            timestamp: Date.now(),
-            location: center
-        });
-    }
+    return marker;
 }
 
 /**
- * Load streets in current view
+ * Update route weather display
  */
-async function loadStreets() {
+async function updateRouteWeather(route) {
+    // Clear existing markers
+    weatherMarkers.forEach(marker => marker.setMap(null));
+    weatherMarkers.clear();
+    
+    // Get route path
+    const path = route.overview_path.map(point => ({
+        lat: point.lat(),
+        lng: point.lng()
+    }));
+
+    // Get weather data for route
+    const weatherPoints = await getRouteWeather(path);
+
+    // Create markers for weather points
+    weatherPoints.forEach(point => {
+        if (point.weather) {
+            const marker = createWeatherMarker(
+                { lat: point.lat, lng: point.lng },
+                point.weather
+            );
+            weatherMarkers.set(`${point.lat},${point.lng}`, marker);
+        }
+    });
+
+    // Update route info
+    const routeInfo = document.getElementById('route-info');
+    const rainPercentage = (weatherPoints.filter(p => p.weather?.isRaining).length / weatherPoints.length * 100).toFixed(1);
+    
+    routeInfo.innerHTML = `
+        <div class="route-summary">
+            <p><strong>Distance:</strong> ${(route.distance.value / 1000).toFixed(1)} km</p>
+            <p><strong>Duration:</strong> ${Math.round(route.duration.value / 60)} mins</p>
+            <p><strong>Rain Chance:</strong> ${rainPercentage}% of route</p>
+        </div>
+    `;
+}
+
+/**
+ * Calculate and display route
+ */
+async function calculateRoute() {
+    const start = startAutocomplete.getPlace();
+    const end = endAutocomplete.getPlace();
+
+    if (!start || !end) {
+        alert('Please select both start and end locations');
+        return;
+    }
+
     showLoading();
     try {
-        const bounds = map.getBounds();
-        const data = await throttledFetchStreets(bounds);
-        
-        // Process each street
-        data.features.forEach(street => {
-            const id = street.properties.id;
-            streets.set(id, street);
-            
-            // Check for existing report
-            const reportRef = ref(db, `reports/${id}`);
-            onValue(reportRef, (snapshot) => {
-                const report = snapshot.val();
-                if (report && (Date.now() - report.timestamp < 3600000)) { // Reports valid for 1 hour
-                    updateStreetStatus(id, report.isRaining, 'user');
+        const result = await new Promise((resolve, reject) => {
+            directionsService.route({
+                origin: start.geometry.location,
+                destination: end.geometry.location,
+                travelMode: google.maps.TravelMode.DRIVING
+            }, (result, status) => {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    resolve(result);
                 } else {
-                    // Fetch weather data if no recent report
-                    const coords = street.geometry.coordinates;
-                    const center = coords[Math.floor(coords.length / 2)];
-                    fetchWeather(center[1], center[0])
-                        .then(weather => {
-                            if (weather) {
-                                updateStreetStatus(id, weather.rain, 'api');
-                            }
-                        });
+                    reject(new Error(`Route calculation failed: ${status}`));
                 }
             });
         });
+
+        directionsRenderer.setDirections(result);
+        currentRoute = result.routes[0].legs[0];
+        await updateRouteWeather(currentRoute);
     } catch (error) {
-        console.error('Error loading streets:', error);
+        console.error('Route error:', error);
+        alert('Failed to calculate route. Please try again.');
     } finally {
         hideLoading();
     }
 }
 
 // Event Listeners
-map.on('moveend', loadStreets);
+document.getElementById('get-route').addEventListener('click', calculateRoute);
 
-// Handle user reports
-let selectedStreet = null;
-const locationStatus = document.querySelector('.location-status');
-
-map.on('click', (e) => {
-    const point = e.latlng;
-    
-    // Find nearest street
-    let nearest = null;
-    let minDist = Infinity;
-    
-    streets.forEach(street => {
-        const coords = street.geometry.coordinates;
-        const center = [coords[Math.floor(coords.length / 2)][1], coords[Math.floor(coords.length / 2)][0]];
-        const dist = point.distanceTo(L.latLng(center));
-        
-        if (dist < minDist && dist < 500) { // Within 500 meters
-            minDist = dist;
-            nearest = street;
-        }
-    });
-    
-    if (nearest) {
-        selectedStreet = nearest;
-        locationStatus.textContent = `Selected: ${nearest.properties.name}`;
-    } else {
-        selectedStreet = null;
-        locationStatus.textContent = 'Click closer to a street';
-    }
-});
-
-document.querySelectorAll('.report-btn').forEach(btn => {
+// Use current location buttons
+document.querySelectorAll('.location-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        if (!selectedStreet) {
-            alert('Please select a street first');
-            return;
+        if (navigator.geolocation) {
+            showLoading();
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const input = btn.dataset.type === 'start' ? startInput : endInput;
+                    const geocoder = new google.maps.Geocoder();
+                    
+                    geocoder.geocode({
+                        location: {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        }
+                    }, (results, status) => {
+                        hideLoading();
+                        if (status === google.maps.GeocoderStatus.OK && results[0]) {
+                            input.value = results[0].formatted_address;
+                        } else {
+                            alert('Could not find address for this location');
+                        }
+                    });
+                },
+                (error) => {
+                    hideLoading();
+                    alert('Error getting your location: ' + error.message);
+                }
+            );
+        } else {
+            alert('Geolocation is not supported by your browser');
         }
-        
-        const isRaining = btn.dataset.condition === 'rain';
-        updateStreetStatus(selectedStreet.properties.id, isRaining, 'user');
-        
-        selectedStreet = null;
-        locationStatus.textContent = 'Click on the map to select location';
     });
 }); 

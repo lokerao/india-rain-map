@@ -1,14 +1,14 @@
 // Firebase configuration
 const firebaseConfig = {
-    apiKey: "AIzaSyCrIM5bHfNG9FB6v9GTlQiMKQWPUXnifgY",
-    authDomain: "india-rain-map.firebaseapp.com",
-    databaseURL: "https://india-rain-map-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "india-rain-map",
-    storageBucket: "india-rain-map.firebasestorage.app",
-    messagingSenderId: "1060331408507",
-    appId: "1:1060331408507:web:03e6bc6c0b73d1ea82a6de",
-    measurementId: "G-3RCW9KYBY8"
-  };
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    measurementId: process.env.FIREBASE_MEASUREMENT_ID
+};
 
 // Initialize Firebase
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
